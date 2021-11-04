@@ -17,14 +17,6 @@ import re
 from serpent.input_controller import InputController
 from serpent.input_controller import MouseEvent, MouseEvents, MouseButton
 
-from serpent.config import config
-
-from redis import StrictRedis
-
-
-
-import pickle
-
 from serpent.machine_learning.reinforcement_learning.agents.rainbow_dqn_agent import RainbowDQNAgent
 from serpent.machine_learning.reinforcement_learning.agents.ppo_agent import PPOAgent
 #from serpent.machine_learning.reinforcement_learning.ddqn import DDQN
@@ -299,49 +291,6 @@ class SerpentNimbleAngelGameAgent(GameAgent):
 
     def setup_play(self):
 
-        '''input_mapping = {
-            "UP": [KeyboardKey.KEY_UP],
-            "DOWN": [KeyboardKey.KEY_DOWN],
-            "LEFT": [KeyboardKey.KEY_LEFT],
-            "RIGHT": [KeyboardKey.KEY_RIGHT],
-            "UP-LEFT": [KeyboardKey.KEY_UP, KeyboardKey.KEY_LEFT],
-            "UP-RIGHT": [KeyboardKey.KEY_UP, KeyboardKey.KEY_RIGHT],
-            "DOWN-LEFT": [KeyboardKey.KEY_DOWN, KeyboardKey.KEY_LEFT],
-            "DOWN-RIGHT": [KeyboardKey.KEY_DOWN, KeyboardKey.KEY_RIGHT],
-            "Shoot" : [KeyboardKey.KEY_Z],
-            "Aura": [KeyboardKey.KEY_X]
-        }'''
-        
-        '''self.key_mapping = {
-            KeyboardKey.KEY_UP.name: "UP",
-            KeyboardKey.KEY_LEFT.name: "LEFT",
-            KeyboardKey.KEY_DOWN.name: "DOWN",
-            KeyboardKey.KEY_RIGHT.name: "RIGHT",
-            KeyboardKey.KEY_Z.name: "Shoot",
-            KeyboardKey.KEY_X.name: "Aura"
-        }'''
-        '''input_mapping0 = {
-            "A,1": [InputController.move(self, x=5, y=5)],
-            "A,2": [InputController.move(self, x=8, y=8)]
-        }'''
-
-        '''input_mapping1 = {
-            "A,1": [controller.move(self, x=5, y=5)],
-            "A,2": [controller.move(self, x=8, y=8)]
-        }'''
-
-
-        '''input_mapping2 = {
-                "A,1": [MouseEvent(MouseEvents.MOVE,  x=5, y=5)],
-                "A,2": [MouseEvent(MouseEvents.MOVE,  x=8, y=8)]
-            }'''
-        
-        '''input_mapping3 = {
-            "A,1": [self.input_controller.move(x=5, y=5)],
-            "A,2": [self.input_controller.move(x=8, y=8)]
-        }'''
-
-
         self.game_inputs = [{
             "name" : "Controls",
             "control_type" : InputControlTypes.DISCRETE,
@@ -361,7 +310,9 @@ class SerpentNimbleAngelGameAgent(GameAgent):
 
         # Rainbow DQN fails to generate inputs for mouse movements (game_inputs2) ---- SOLVED! Added "value" key in self.game_inputs
         # AND in RainbowDQNAgent code.
+    
         # Trying PPO - Fail. Damn Pytorch
+        
         # Using DDQN - Success? Attention to cuDNN though
 
         '''action_space = KeyboardMouseActionSpace(
@@ -428,7 +379,8 @@ class SerpentNimbleAngelGameAgent(GameAgent):
 
             for event in game_input:
                 print(f"event in game_input: {event}")'''
-
+        
+        # DDQN code --- I have barely touched this at all
         '''if self.agent_movement.frame_stack is None:
             full_game_frame = FrameGrabber.get_frames(
                 [0, 4, 8, 12],
