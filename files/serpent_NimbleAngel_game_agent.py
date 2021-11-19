@@ -1,5 +1,4 @@
 from serpent.game_agent import GameAgent
-import collections
 import serpent.utilities
 from serpent.sprite_locator import SpriteLocator
 from serpent.sprite import Sprite
@@ -11,20 +10,14 @@ import skimage.measure
 import serpent.cv
 import serpent.utilities
 import serpent.ocr
-import gc
-import re
 
-from serpent.input_controller import InputController
 from serpent.input_controller import MouseEvent, MouseEvents, MouseButton
 
-from serpent.machine_learning.reinforcement_learning.agents.rainbow_dqn_agent import RainbowDQNAgent
-from serpent.machine_learning.reinforcement_learning.agents.ppo_agent import PPOAgent
-#from serpent.machine_learning.reinforcement_learning.ddqn import DDQN
+from serpent.config import config
 
-import time
+from serpent.machine_learning.reinforcement_learning.agents.rainbow_dqn_agent import RainbowDQNAgent
 
 from serpent.input_controller import KeyboardEvent, KeyboardEvents
-from serpent.input_controller import MouseEvent, MouseEvents
 
 from serpent.config import config
 
@@ -40,85 +33,8 @@ class Environment:
         self.game_api = game_api
         self.input_controller = input_controller
 
-        self.game_state = dict()
-
         self.analytics_client = AnalyticsClient(project_key=config["analytics"]["topic"])
 
-        self.reset()
-
-    @property
-    def episode_duration(self):
-        return time.time() - self.episode_started_at
-
-    @property
-    def episode_over(self):
-        if self.episode_maximum_steps is not None:
-            return self.episode_steps >= self.episode_maximum_steps
-        else:
-            return False
-
-    @property
-    def new_episode_data(self):
-        return dict()
-
-    @property
-    def end_episode_data(self):
-        return dict()
-
-    def new_episode(self, maximum_steps=None, reset=False):
-        self.episode_steps = 0
-        self.episode_maximum_steps = maximum_steps
-
-        self.episode_started_at = time.time()
-
-        if not reset:
-            self.episode += 1
-
-        self.analytics_client.track(
-            event_key="NEW_EPISODE",
-            data={
-                "episode": self.episode,
-                "episode_data": self.new_episode_data,
-                "maximum_steps": self.episode_maximum_steps
-            }
-        )
-
-    def end_episode(self):
-        self.analytics_client.track(
-            event_key="END_EPISODE",
-            data={
-                "episode": self.episode,
-                "episode_data": self.end_episode_data,
-                "episode_steps": self.episode_steps,
-                "maximum_steps": self.episode_maximum_steps
-            }
-        )
-
-    def episode_step(self):
-        self.episode_steps += 1
-        self.total_steps += 1
-
-        self.analytics_client.track(
-            event_key="EPISODE_STEP",
-            data={
-                "episode": self.episode,
-                "episode_step": self.episode_steps,
-                "total_steps": self.total_steps
-            }
-        )
-
-    def reset(self):
-        self.total_steps = 0
-
-        self.episode = 0
-        self.episode_steps = 0
-
-        self.episode_maximum_steps = None
-
-        self.episode_started_at = None
-
-    def update_game_state(self, game_frame):
-        raise NotImplementedError()
 
     def perform_input(self, actions):
         discrete_keyboard_keys = set()
@@ -169,11 +85,6 @@ class Environment:
                             self.input_controller.click_down(button=event.button)
                         elif event.event == MouseEvents.CLICK_UP:
                             self.input_controller.click_up(button=event.button)
-                        elif event.event == MouseEvents.CLICK_SCREEN_REGION:
-                            screen_region = event.kwargs["screen_region"]
-                            self.input_controller.click_screen_region(button=event.button, screen_region=screen_region)
-                        elif event.event == MouseEvents.SCROLL:
-                            self.input_controller.scroll(direction=event.direction)
 
                         self.analytics_client.track(
                             event_key="GAME_INPUT",
@@ -210,25 +121,8 @@ class Environment:
                     )
                 elif isinstance(game_input[0], MouseEvent):
                     for event in game_input:
-                        if event.event == MouseEvents.CLICK_SCREEN_REGION:
-                            screen_region = event.kwargs["screen_region"]
-                            self.input_controller.click_screen_region(button=event.button, screen_region=screen_region)
-                        elif event.event == MouseEvents.MOVE:
+                        if event.event == MouseEvents.MOVE:
                             self.input_controller.move(x=event.x, y=event.y)
-                        elif event.event == MouseEvents.MOVE_RELATIVE:
-                            self.input_controller.move(x=event.x, y=event.y, absolute=False)
-                        elif event.event == MouseEvents.DRAG_START:
-                            screen_region = event.kwargs.get("screen_region")
-                            coordinates = self.input_controller.ratios_to_coordinates(value, screen_region=screen_region)
-
-                            self.input_controller.move(x=coordinates[0], y=coordinates[1], duration=0.1)
-                            self.input_controller.click_down(button=event.button)
-                        elif event.event == MouseEvents.DRAG_END:
-                            screen_region = event.kwargs.get("screen_region")
-                            coordinates = self.input_controller.ratios_to_coordinates(value, screen_region=screen_region)
-
-                            self.input_controller.move(x=coordinates[0], y=coordinates[1], duration=0.1)
-                            self.input_controller.click_up(button=event.button)
 
                         self.analytics_client.track(
                             event_key="GAME_INPUT",
@@ -253,13 +147,11 @@ class Environment:
 
 import enum
 
-from serpent.machine_learning.reinforcement_learning.keyboard_mouse_action_space import KeyboardMouseActionSpace
-import os
-
 class InputControlTypes(enum.Enum):
     DISCRETE = 0
     CONTINUOUS = 1
 
+sprite_locator = SpriteLocator()
 
 class SerpentNimbleAngelGameAgent(GameAgent):
 
@@ -296,6 +188,7 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             "control_type" : InputControlTypes.DISCRETE,
             "inputs" : self.game.api.combine_game_inputs(["MOVEMENT"]),
             "value": None}]
+
         
         # Move mouse = Control Type Continuous. We should make a second agent
         # responsible for moving the mouse.
@@ -303,31 +196,24 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         self.game_inputs2 = [{
             "name": "Mouse",
             "control_type": InputControlTypes.CONTINUOUS,
-            "inputs": self.game.api.combine_game_inputs(["MOUSE"]),
+            "inputs": self.game.api.game_inputs2["MOUSE"],
             "value": 0.05
             }]
-
+        
 
         # Rainbow DQN fails to generate inputs for mouse movements (game_inputs2) ---- SOLVED! Added "value" key in self.game_inputs
         # AND in RainbowDQNAgent code.
-    
         # Trying PPO - Fail. Damn Pytorch
-        
         # Using DDQN - Success? Attention to cuDNN though
-
-        '''action_space = KeyboardMouseActionSpace(
-            action_keys=[None, "A,1", "A,2"]
-        )'''
 
         self.agent_actions = RainbowDQNAgent('Angel_actions', game_inputs=self.game_inputs)
         self.agent_mouse = RainbowDQNAgent("Angel_mouse", game_inputs=self.game_inputs2)
-        #self.agent_mouse = PPOAgent("Angel_mouse", game_inputs=self.game_inputs2, input_shape=(12,12,4))
-        '''self.agent_movement = DDQN(
-            input_shape=(12,12,4),
-            input_mapping=input_mapping3,
-            action_space=action_space,
-            model_file_path=None
-                          )'''
+
+        #self.agent_actions.current_episode = self.game_state['current_run'] # This code will cause an error
+        #self.agent_mouse.current_episode = self.agent_actions.current_episode 
+        
+        #self.agent_actions.current_step = self.game_state['current_run_steps']
+        #self.agent_mouse.current_step = self.agent_actions.current_step
 
     def handle_play(self, game_frame):
 
@@ -348,10 +234,22 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         
         frame_buffer = FrameGrabber.get_frames([0, 2, 4, 6], frame_type="PIPELINE")
         agent_actions = self.agent_actions.generate_actions(frame_buffer)
-        agent_mouse = self.agent_mouse.generate_actions(frame_buffer)
+        #print(f"agent_actions: {agent_actions}")
+        #agent_mouse = self.agent_mouse.generate_actions(frame_buffer)
+        x = self.agent_mouse.generate_mouse_coordinates(frame_buffer)
+        y = self.agent_mouse.generate_mouse_coordinates(frame_buffer)
+
+        mouse_actions = self.agent_mouse.generate_mouse_actions(x, 1920, y, 1080)
+
+        #print(f"\n\nmouse_actions:{mouse_actions}")
 
         Environment.perform_input(self, actions=agent_actions)
-        Environment.perform_input(self, actions=agent_mouse)
+        Environment.perform_input(self, actions=mouse_actions)
+
+        # Saving model each N steps:
+        if self.agent_actions.current_step % 100 == 0:
+            self.agent_actions.save_model()
+            self.agent_mouse.save_model()
 
         self.game_state['current_run_steps'] += 1
 
@@ -364,6 +262,10 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         print(f"Current Run Step: {self.game_state['current_run_steps']}")
         #print(f"\n\nagent_mouse:\n\n{agent_mouse}\n\n\n")
 
+        print(f"\n\n X: {x}\n")
+        print(f" Y: {y}")
+        print(f"\n\nmouse_actions:{mouse_actions}")
+        
         self._check_end(game_frame)
 
         # Let's solve this mouse problem once and for all:
@@ -380,103 +282,6 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             for event in game_input:
                 print(f"event in game_input: {event}")'''
         
-        # DDQN code --- I have barely touched this at all
-        '''if self.agent_movement.frame_stack is None:
-            full_game_frame = FrameGrabber.get_frames(
-                [0, 4, 8, 12],
-                frame_type="PIPELINE"
-            ).frames[0]
-
-            self.agent_movement.build_frame_stack(full_game_frame.frame)
-
-        else:
-            game_frame_buffer = FrameGrabber.get_frames(
-                [0],
-                frame_type="PIPELINE"
-            )
-
-            if self.agent_movement.mode == "TRAIN":
-
-                self.agent_movement.append_to_replay_memory(
-                    game_frame_buffer,
-                    reward_mouse,
-                    terminal=self.game_state["health"] == 0
-                )
-
-                # Every 2000 steps, save latest weights to disk
-                if self.agent_movement.current_step % 2000 == 0:
-                    self.agent_movement.save_model_weights(
-                        file_path_prefix="D:/SerpentAI/datasets/phy_movement"
-                    )
-
-                # Every 20000 steps, save weights checkpoint to disk
-                if self.agent_movement.current_step % 20000 == 0:
-                    self.agent_movement.save_model_weights(
-                        file_path_prefix="D:/SerpentAI/datasets/phy_movement",
-                        is_checkpoint=True
-                    )
-
-            elif self.agent_movement.mode == "RUN":
-                self.agent_movement.update_frame_stack(game_frame_buffer)
-
-            if self.game_state["hp"][1] <= 0:
-                serpent.utilities.clear_terminal()
-                timestamp = datetime.utcnow()
-
-                gc.enable()
-                gc.collect()
-                gc.disable()
-
-                timestamp_delta = timestamp - self.game_state["run_timestamp"]
-                self.game_state["last_run_duration"] = timestamp_delta.seconds
-
-                if self.agent_movement.mode in ["TRAIN", "RUN"]:
-                    # Check for Records
-                    if self.game_state["last_run_duration"] > self.game_state["record_time_alive"].get("value", 0):
-                        self.game_state["record_time_alive"] = {
-                            "value": self.game_state["last_run_duration"],
-                            "run": self.game_state["current_run"],
-                            "predicted": self.agent_movement.mode == "RUN"
-                        }
-                else:
-                    pass
-
-                self.game_state["current_run_steps"] = 0
-
-                self.input_controller.handle_keys([])
-
-                if self.agent_movement.mode == "TRAIN":
-                    for i in range(8):
-
-                        self.agent_movement.train_on_mini_batch()
-
-                if self.agent_movement.mode in ["TRAIN", "RUN"]:
-                    if self.game_state["current_run"] > 0 and self.game_state["current_run"] % 100 == 0:
-                        if self.agent_movement.type == "DDQN":
-                            self.agent_movement.update_target_model()
-
-                    if self.game_state["current_run"] > 0 and self.game_state["current_run"] % 20 == 0:
-                        self.agent_movement.enter_run_mode()
-                    else:
-                        self.agent_movement.enter_train_mode()
-
-                return None
-
-
-
-        self.agent_movement.pick_action()
-        self.agent_movement.generate_action()
-
-        keys = self.agent_movement.get_input_values()
-
-        self.input_controller.handle_keys(keys)
-
-        self.agent_movement.erode_epsilon(factor=2)
-
-        self.agent_movement.next_step()'''
-
-
-
 
     def _measure_hp(self, game_frame):
         heart3 = skimage.io.imread('D:/Python/datasets/bullet_heaven_heart3.png')[..., np.newaxis]
@@ -485,8 +290,6 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         sprite_heart3 = Sprite("3 Lifes", image_data=heart3)
         sprite_heart2 = Sprite("2 Lifes", image_data=heart2)
         sprite_heart1 = Sprite("1 Lifes", image_data=heart1)
-
-        sprite_locator = SpriteLocator()
 
         search3 = sprite_locator.locate(sprite=sprite_heart3, game_frame=game_frame)
         if search3 is not None:
@@ -511,18 +314,21 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             
         score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
             
-        score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5)
-
-        # OCR may add some strange characters:
-
-        score_clean = re.sub(r'[^0-9]', '', score)
-
         try:
-            score_clean = int(score_clean)
-        except ValueError:
-            score_clean = 0
+            score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 8 -c tessedit_char_whitelist=Oo0123456789')
 
-        return score_clean
+            score = score.replace('O', '0')
+            score = score.replace('o', '0')
+        
+        except ValueError:
+            score = 0
+        
+        try:
+            score = int(score)
+        except ValueError:
+            score = 0
+
+        return score
 
     def _measure_bomb(self, game_frame):
         bomb3 = skimage.io.imread('D:/Python/datasets/bullet_heaven_bomb3.png')[..., np.newaxis]
@@ -531,8 +337,6 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         sprite_bomb3 = Sprite("3 Lifes", image_data=bomb3)
         sprite_bomb2 = Sprite("2 Lifes", image_data=bomb2)
         sprite_bomb1 = Sprite("1 Lifes", image_data=bomb1)
-
-        sprite_locator = SpriteLocator()
 
         search3 = sprite_locator.locate(sprite=sprite_bomb3, game_frame=game_frame)
         if search3 is not None:
@@ -567,11 +371,9 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         sprite_next = Sprite("Next Level", image_data=next_level)
         sprite_restart = Sprite("Restart Level", image_data=restart)
 
-        sprite_locator = SpriteLocator()
-
         search_next = sprite_locator.locate(sprite=sprite_next, game_frame=game_frame)
         
-        if search_next is not None:
+        if search_next != None:
             search_next_x = (search_next[1] + search_next[3])/2
             search_next_y = (search_next[0] + search_next[2])/2
 
@@ -584,7 +386,7 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         else:
             search_restart = sprite_locator.locate(sprite=sprite_restart, game_frame=game_frame)
 
-            if search_restart is not None:
+            if search_restart != None:
                 search_restart_x = (search_restart[1] + search_restart[3])/2
                 search_restart_y = (search_restart[0] + search_restart[2])/2
 
