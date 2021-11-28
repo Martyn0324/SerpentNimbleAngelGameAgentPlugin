@@ -8,8 +8,9 @@ from serpent.frame_grabber import FrameGrabber
 import skimage.color
 import skimage.measure
 import serpent.cv
-import serpent.utilities
 import serpent.ocr
+
+from datetime import datetime
 
 from serpent.input_controller import MouseEvent, MouseEvents, MouseButton
 
@@ -174,10 +175,7 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             "run_reward": 0,
             "current_run": 1,
             "current_run_steps": 0,
-            "run_predicted_actions": 0,
-            "last_run_duration": 0,
-            "record_time_alive": dict(),
-            "run_timestamp": datetime.utcnow(),
+            "total_steps": 0,
         }
 
 
@@ -189,6 +187,7 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             "inputs" : self.game.api.combine_game_inputs(["MOVEMENT"]),
             "value": None}]
 
+        #print(f"game_inputs1: {self.game_inputs}\n")
         
         # Move mouse = Control Type Continuous. We should make a second agent
         # responsible for moving the mouse.
@@ -200,22 +199,33 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             "value": 0.05
             }]
         
+        #print(f"game_inputs2: {self.game_inputs2}")
 
         # Rainbow DQN fails to generate inputs for mouse movements (game_inputs2) ---- SOLVED! Added "value" key in self.game_inputs
         # AND in RainbowDQNAgent code.
         # Trying PPO - Fail. Damn Pytorch
         # Using DDQN - Success? Attention to cuDNN though
 
-        self.agent_actions = RainbowDQNAgent('Angel_actions', game_inputs=self.game_inputs)
-        self.agent_mouse = RainbowDQNAgent("Angel_mouse", game_inputs=self.game_inputs2)
+        # History = channel number = frames number
+        # If each frame has 3 RGB channels, then history must be 4*3 = 12
 
-        #self.agent_actions.current_episode = self.game_state['current_run'] # This code will cause an error
-        #self.agent_mouse.current_episode = self.agent_actions.current_episode 
+        self.agent_actions = RainbowDQNAgent('Angel_actions', game_inputs=self.game_inputs, current_steps=self.game_state['total_steps'], rainbow_kwargs=dict(history=4*3))
+        self.agent_mouse = RainbowDQNAgent("Angel_mouse", game_inputs=self.game_inputs2, current_steps=self.game_state['total_steps'], rainbow_kwargs=dict(history=4*3))
+
+        self.agent_actions.current_episode = self.game_state['current_run']
+        self.agent_mouse.current_episode = self.agent_actions.current_episode
         
-        #self.agent_actions.current_step = self.game_state['current_run_steps']
-        #self.agent_mouse.current_step = self.agent_actions.current_step
+        self.agent_actions.current_step = self.game_state['total_steps']
+        self.agent_mouse.current_step = self.agent_actions.current_step
 
     def handle_play(self, game_frame):
+
+        # Saving model each N steps: - Causes great delay between actions
+        if self.game_state['total_steps'] % 100 == 0:
+            self.agent_actions.save_model()
+            self.agent_mouse.save_model()
+
+        start = datetime.now()
 
         self.game_state["hp"] = self._measure_hp(game_frame)
         self.game_state["score"] = self._measure_score(game_frame)
@@ -239,19 +249,20 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         x = self.agent_mouse.generate_mouse_coordinates(frame_buffer)
         y = self.agent_mouse.generate_mouse_coordinates(frame_buffer)
 
-        mouse_actions = self.agent_mouse.generate_mouse_actions(x, 1920, y, 1080)
+        #print(f"\n\n X: {x}\n")
+        #print(f" Y: {y}")
+        #print(f"\nagent_mouse: {agent_mouse}")
+
+        mouse_actions = self.agent_mouse.generate_mouse_actions(x, 1220, y, 920)
 
         #print(f"\n\nmouse_actions:{mouse_actions}")
 
-        Environment.perform_input(self, actions=agent_actions)
         Environment.perform_input(self, actions=mouse_actions)
+        Environment.perform_input(self, actions=agent_actions)
 
-        # Saving model each N steps:
-        if self.agent_actions.current_step % 100 == 0:
-            self.agent_actions.save_model()
-            self.agent_mouse.save_model()
 
         self.game_state['current_run_steps'] += 1
+        self.game_state['total_steps'] += 1
 
         serpent.utilities.clear_terminal()
         print(f"Current HP: {self.game_state['hp']}")
@@ -260,13 +271,26 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         print(f"Current Reward: {self.game_state['run_reward']}")
         print(f"Current Run: {self.game_state['current_run']}")
         print(f"Current Run Step: {self.game_state['current_run_steps']}")
+        print(f"Total Steps: {self.game_state['total_steps']}")
         #print(f"\n\nagent_mouse:\n\n{agent_mouse}\n\n\n")
+        #print(f"Model mode: {self.agent_mouse.observe_mode}")
+        #print(f"current_state shape: {self.agent_mouse.current_state.shape}")
+
+        #print(f"model mode: {self.agent_mouse.mode}")
+
+        #print(f"game_state_steps: {self.game_state['current_run_steps']}")
+        #print(f"self.agent_steps: {self.agent_mouse.current_step}")
+        #print(self.agent_mouse.current_episode)
 
         print(f"\n\n X: {x}\n")
         print(f" Y: {y}")
         print(f"\n\nmouse_actions:{mouse_actions}")
         
         self._check_end(game_frame)
+
+        end = datetime.now()
+
+        print(f"Time spent to realize action: {end-start}")
 
         # Let's solve this mouse problem once and for all:
 
@@ -281,7 +305,6 @@ class SerpentNimbleAngelGameAgent(GameAgent):
 
             for event in game_input:
                 print(f"event in game_input: {event}")'''
-        
 
     def _measure_hp(self, game_frame):
         heart3 = skimage.io.imread('D:/Python/datasets/bullet_heaven_heart3.png')[..., np.newaxis]
@@ -323,6 +346,9 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         except ValueError:
             score = 0
         
+        except np.linalg.LinAlgError:
+            score = 0
+        
         try:
             score = int(score)
         except ValueError:
@@ -334,9 +360,9 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         bomb3 = skimage.io.imread('D:/Python/datasets/bullet_heaven_bomb3.png')[..., np.newaxis]
         bomb2 = skimage.io.imread('D:/Python/datasets/bullet_heaven_bomb2.png')[..., np.newaxis]
         bomb1 = skimage.io.imread('D:/Python/datasets/bullet_heaven_bomb1.png')[..., np.newaxis]
-        sprite_bomb3 = Sprite("3 Lifes", image_data=bomb3)
-        sprite_bomb2 = Sprite("2 Lifes", image_data=bomb2)
-        sprite_bomb1 = Sprite("1 Lifes", image_data=bomb1)
+        sprite_bomb3 = Sprite("3 Bombs", image_data=bomb3)
+        sprite_bomb2 = Sprite("2 Bombs", image_data=bomb2)
+        sprite_bomb1 = Sprite("1 Bomb", image_data=bomb1)
 
         search3 = sprite_locator.locate(sprite=sprite_bomb3, game_frame=game_frame)
         if search3 is not None:
@@ -357,12 +383,11 @@ class SerpentNimbleAngelGameAgent(GameAgent):
                     return 0
 
     def _reward(self, game_state, game_frame):
-        if self.game_state['hp'] is None:
-            pass
-        elif self.game_state['hp'] == 0:
+
+        if self.game_state['hp'] == 0:
             return -(1000000 - (self.game_state['score'] * self.game_state['bombs']))
         else:
-            return (self.game_state['score'] + (self.game_state['hp'] * self.game_state['bombs']))
+            return (self.game_state['score'] * (self.game_state['hp'] + self.game_state['bombs']))
 
     def _check_end(self, game_frame):
         next_level = skimage.io.imread('D:/Python/datasets/bullet_heaven_next.png')[..., np.newaxis]
