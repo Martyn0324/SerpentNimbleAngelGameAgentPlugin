@@ -10,6 +10,8 @@ import skimage.measure
 import serpent.cv
 import serpent.ocr
 
+import re
+
 from datetime import datetime
 
 from serpent.input_controller import MouseEvent, MouseEvents, MouseButton
@@ -19,8 +21,6 @@ from serpent.config import config
 from serpent.machine_learning.reinforcement_learning.agents.rainbow_dqn_agent import RainbowDQNAgent
 
 from serpent.input_controller import KeyboardEvent, KeyboardEvents
-
-from serpent.config import config
 
 from serpent.analytics_client import AnalyticsClient
 
@@ -169,9 +169,9 @@ class SerpentNimbleAngelGameAgent(GameAgent):
 
     def _reset_game_state(self):
         self.game_state = {
-            "hp": 3,
+            #"hp": 3,
             "score": 0,
-            "bombs": 3,
+            #"bombs": 3,
             "run_reward": 0,
             "current_run": 1,
             "current_run_steps": 0,
@@ -186,8 +186,6 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             "control_type" : InputControlTypes.DISCRETE,
             "inputs" : self.game.api.combine_game_inputs(["MOVEMENT"]),
             "value": None}]
-
-        #print(f"game_inputs1: {self.game_inputs}\n")
         
         # Move mouse = Control Type Continuous. We should make a second agent
         # responsible for moving the mouse.
@@ -196,21 +194,20 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             "name": "Mouse",
             "control_type": InputControlTypes.CONTINUOUS,
             "inputs": self.game.api.game_inputs2["MOUSE"],
-            "value": 0.05
+            "value": 0.02
             }]
         
-        #print(f"game_inputs2: {self.game_inputs2}")
 
         # Rainbow DQN fails to generate inputs for mouse movements (game_inputs2) ---- SOLVED! Added "value" key in self.game_inputs
         # AND in RainbowDQNAgent code.
         # Trying PPO - Fail. Damn Pytorch
         # Using DDQN - Success? Attention to cuDNN though
 
-        # History = channel number = frames number
-        # If each frame has 3 RGB channels, then history must be 4*3 = 12
+        # History = n_channels in the Conv2D = number of frames
+        # If each frame got 3 RGB channels, then history must be 4*3 = 12
 
-        self.agent_actions = RainbowDQNAgent('Angel_actions', game_inputs=self.game_inputs, current_steps=self.game_state['total_steps'], rainbow_kwargs=dict(history=4*3))
-        self.agent_mouse = RainbowDQNAgent("Angel_mouse", game_inputs=self.game_inputs2, current_steps=self.game_state['total_steps'], rainbow_kwargs=dict(history=4*3))
+        self.agent_actions = RainbowDQNAgent('Angel_actions', game_inputs=self.game_inputs, current_run=self.game_state['current_run'], current_steps=self.game_state['total_steps'], rainbow_kwargs=dict(history=4*3))
+        self.agent_mouse = RainbowDQNAgent("Angel_mouse", game_inputs=self.game_inputs2, current_run=self.game_state['current_run'], current_steps=self.game_state['total_steps'], rainbow_kwargs=dict(history=4*3))
 
         self.agent_actions.current_episode = self.game_state['current_run']
         self.agent_mouse.current_episode = self.agent_actions.current_episode
@@ -227,16 +224,16 @@ class SerpentNimbleAngelGameAgent(GameAgent):
 
         start = datetime.now()
 
-        self.game_state["hp"] = self._measure_hp(game_frame)
+        #self.game_state["hp"] = self._measure_hp(game_frame)
         self.game_state["score"] = self._measure_score(game_frame)
-        self.game_state["bombs"] = self._measure_bomb(game_frame)
+        #self.game_state["bombs"] = self._measure_bomb(game_frame)
         
         # While we are testing mouse inputs, we're gonna use reward = 0
         
         #reward_actions = 0
         #reward_mouse = reward_actions
 
-        reward_actions = self._reward(self.game_state, game_frame)
+        reward_actions = self._reward(self.game_state)
         reward_mouse = reward_actions
         
         self.agent_actions.observe(reward=reward_actions)
@@ -244,18 +241,16 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         
         frame_buffer = FrameGrabber.get_frames([0, 2, 4, 6], frame_type="PIPELINE")
         agent_actions = self.agent_actions.generate_actions(frame_buffer)
-        #print(f"agent_actions: {agent_actions}")
-        #agent_mouse = self.agent_mouse.generate_actions(frame_buffer)
+
+      
         x = self.agent_mouse.generate_mouse_coordinates(frame_buffer)
         y = self.agent_mouse.generate_mouse_coordinates(frame_buffer)
 
-        #print(f"\n\n X: {x}\n")
-        #print(f" Y: {y}")
-        #print(f"\nagent_mouse: {agent_mouse}")
+        print(f"\n\n X: {x}\n")
+        print(f" Y: {y}")
 
-        mouse_actions = self.agent_mouse.generate_mouse_actions(x, 1220, y, 920)
+        mouse_actions = self.agent_mouse.generate_mouse_actions(x, 1920, y, 1080)
 
-        #print(f"\n\nmouse_actions:{mouse_actions}")
 
         Environment.perform_input(self, actions=mouse_actions)
         Environment.perform_input(self, actions=agent_actions)
@@ -265,32 +260,24 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         self.game_state['total_steps'] += 1
 
         serpent.utilities.clear_terminal()
-        print(f"Current HP: {self.game_state['hp']}")
+        #print(f"Current HP: {self.game_state['hp']}")
         print(f"Current Score: {self.game_state['score']}")
-        print(f"Bombs: {self.game_state['bombs']}")
+        #print(f"Bombs: {self.game_state['bombs']}")
         print(f"Current Reward: {self.game_state['run_reward']}")
         print(f"Current Run: {self.game_state['current_run']}")
         print(f"Current Run Step: {self.game_state['current_run_steps']}")
         print(f"Total Steps: {self.game_state['total_steps']}")
         #print(f"\n\nagent_mouse:\n\n{agent_mouse}\n\n\n")
-        #print(f"Model mode: {self.agent_mouse.observe_mode}")
+        #print(f"Model Observe mode: {self.agent_mouse.observe_mode}")
         #print(f"current_state shape: {self.agent_mouse.current_state.shape}")
 
-        #print(f"model mode: {self.agent_mouse.mode}")
-
-        #print(f"game_state_steps: {self.game_state['current_run_steps']}")
-        #print(f"self.agent_steps: {self.agent_mouse.current_step}")
-        #print(self.agent_mouse.current_episode)
-
-        print(f"\n\n X: {x}\n")
-        print(f" Y: {y}")
-        print(f"\n\nmouse_actions:{mouse_actions}")
+        print(f"model mode: {self.agent_mouse.mode}")
         
         self._check_end(game_frame)
 
         end = datetime.now()
 
-        print(f"Time spent to realize action: {end-start}")
+        print(f"Time spent: {end-start}")
 
         # Let's solve this mouse problem once and for all:
 
@@ -306,7 +293,79 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             for event in game_input:
                 print(f"event in game_input: {event}")'''
 
-    def _measure_hp(self, game_frame):
+    def _measure_score(self, game_frame):
+        score_area_frame = serpent.cv.extract_region_from_image(game_frame.frame, self.game.screen_regions["Score"])
+            
+        score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
+            
+        try:
+            score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 8 -c tessedit_char_whitelist=Oo0123456789S')
+
+            score = score.replace('O', '0')
+            score = score.replace('o', '0')
+            score = score.replace('S', '5')
+        
+        except ValueError:
+            score = 0
+        
+        except np.linalg.LinAlgError:
+            score = 0
+        
+        try:
+            score = int(score)
+        except ValueError:
+            score = 0
+
+        return score
+
+    def _reward(self, game_state):
+        
+        return self.game_state['score']
+
+    def _check_end(self, game_frame):
+        restart_area_frame = serpent.cv.extract_region_from_image(game_frame.frame, self.game.screen_regions["Restart"])
+            
+        restart_grayscale = np.array(skimage.color.rgb2gray(restart_area_frame) * 255, dtype="uint8")
+            
+        string = serpent.ocr.perform_ocr(image=restart_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 8')
+
+        # OCR adds some strange characters. Let's remove them.
+
+        string = re.sub(r'[^A-Z|a-z]', '', string)
+
+        if string == 'Restart':
+            self.input_controller.move(x=768, y=992)
+            self.input_controller.click()
+
+            self.game_state['current_run'] += 1
+            self.game_state['current_run_steps'] = 0
+        
+        else:
+            next_area_frame = serpent.cv.extract_region_from_image(game_frame.frame, self.game.screen_regions["Next Level"])
+            next_grayscale = np.array(skimage.color.rgb2gray(next_area_frame) * 255, dtype="uint8")
+
+            string = serpent.ocr.perform_ocr(image=next_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 8')
+
+            string = re.sub(r'[^A-Z|a-z]', '', string)
+
+            if string == 'NextLevel':
+                self.input_controller.move(x=1326, y=982)
+                self.input_controller.click()
+
+                self.game_state['current_run'] += 1
+                self.game_state['current_run_steps'] = 0
+            
+            else:
+                pass
+        
+        return None      
+
+
+# ******CURRENTLY UNUSED (but interesting) FUNCTIONS******
+# Unfortunately, the SpriteLocate function seems to require too much accuracy,
+# which results in always getting None from searches
+
+    '''def _measure_hp(self, game_frame):
         heart3 = skimage.io.imread('D:/Python/datasets/bullet_heaven_heart3.png')[..., np.newaxis]
         heart2 = skimage.io.imread('D:/Python/datasets/bullet_heaven_heart2.png')[..., np.newaxis]
         heart1 = skimage.io.imread('D:/Python/datasets/bullet_heaven_heart1.png')[..., np.newaxis]
@@ -331,30 +390,6 @@ class SerpentNimbleAngelGameAgent(GameAgent):
                 
                 else:
                     return 0
-
-    def _measure_score(self, game_frame):
-        score_area_frame = serpent.cv.extract_region_from_image(game_frame.frame, self.game.screen_regions["Score"])
-            
-        score_grayscale = np.array(skimage.color.rgb2gray(score_area_frame) * 255, dtype="uint8")
-            
-        try:
-            score = serpent.ocr.perform_ocr(image=score_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 8 -c tessedit_char_whitelist=Oo0123456789')
-
-            score = score.replace('O', '0')
-            score = score.replace('o', '0')
-        
-        except ValueError:
-            score = 0
-        
-        except np.linalg.LinAlgError:
-            score = 0
-        
-        try:
-            score = int(score)
-        except ValueError:
-            score = 0
-
-        return score
 
     def _measure_bomb(self, game_frame):
         bomb3 = skimage.io.imread('D:/Python/datasets/bullet_heaven_bomb3.png')[..., np.newaxis]
@@ -382,12 +417,6 @@ class SerpentNimbleAngelGameAgent(GameAgent):
                 else:
                     return 0
 
-    def _reward(self, game_state, game_frame):
-
-        if self.game_state['hp'] == 0:
-            return -(1000000 - (self.game_state['score'] * self.game_state['bombs']))
-        else:
-            return (self.game_state['score'] * (self.game_state['hp'] + self.game_state['bombs']))
 
     def _check_end(self, game_frame):
         next_level = skimage.io.imread('D:/Python/datasets/bullet_heaven_next.png')[..., np.newaxis]
@@ -422,4 +451,4 @@ class SerpentNimbleAngelGameAgent(GameAgent):
                 self.game_state['current_run_steps'] = 0
             
             else:
-                pass
+                pass'''
