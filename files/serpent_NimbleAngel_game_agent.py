@@ -1,7 +1,7 @@
 from serpent.game_agent import GameAgent
 import serpent.utilities
-from serpent.sprite_locator import SpriteLocator
-from serpent.sprite import Sprite
+#from serpent.sprite_locator import SpriteLocator
+#from serpent.sprite import Sprite
 import numpy as np
 from datetime import datetime
 from serpent.frame_grabber import FrameGrabber
@@ -12,8 +12,6 @@ import serpent.ocr
 
 import re
 
-from datetime import datetime
-
 from serpent.input_controller import MouseEvent, MouseEvents, MouseButton
 
 from serpent.config import config
@@ -23,7 +21,6 @@ from serpent.machine_learning.reinforcement_learning.agents.rainbow_dqn_agent im
 from serpent.input_controller import KeyboardEvent, KeyboardEvents
 
 from serpent.analytics_client import AnalyticsClient
-
 
 
 class Environment:
@@ -152,7 +149,7 @@ class InputControlTypes(enum.Enum):
     DISCRETE = 0
     CONTINUOUS = 1
 
-sprite_locator = SpriteLocator()
+#sprite_locator = SpriteLocator()
 
 class SerpentNimbleAngelGameAgent(GameAgent):
 
@@ -186,6 +183,8 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             "control_type" : InputControlTypes.DISCRETE,
             "inputs" : self.game.api.combine_game_inputs(["MOVEMENT"]),
             "value": None}]
+
+        #print(f"game_inputs1: {self.game_inputs}\n")
         
         # Move mouse = Control Type Continuous. We should make a second agent
         # responsible for moving the mouse.
@@ -197,17 +196,29 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             "value": 0.02
             }]
         
+        #print(f"game_inputs2: {self.game_inputs2}")
 
         # Rainbow DQN fails to generate inputs for mouse movements (game_inputs2) ---- SOLVED! Added "value" key in self.game_inputs
         # AND in RainbowDQNAgent code.
         # Trying PPO - Fail. Damn Pytorch
         # Using DDQN - Success? Attention to cuDNN though
 
-        # History = n_channels in the Conv2D = number of frames
-        # If each frame got 3 RGB channels, then history must be 4*3 = 12
+        # History = number of channels = number of frames
+        # If each frame has 3 RGB channels, then history must be 4*3 = 12
 
-        self.agent_actions = RainbowDQNAgent('Angel_actions', game_inputs=self.game_inputs, current_run=self.game_state['current_run'], current_steps=self.game_state['total_steps'], rainbow_kwargs=dict(history=4*3))
-        self.agent_mouse = RainbowDQNAgent("Angel_mouse", game_inputs=self.game_inputs2, current_run=self.game_state['current_run'], current_steps=self.game_state['total_steps'], rainbow_kwargs=dict(history=4*3))
+        '''self.agent_actions = RainbowDQNAgent('Angel_actions', game_inputs=self.game_inputs, rainbow_kwargs=dict(history=4*3))
+        self.agent_mouse = RainbowDQNAgent("Angel_mouse", game_inputs=self.game_inputs2, rainbow_kwargs=dict(history=4*3))'''
+
+        # Trying to avoid RunTimeError for CUDA:
+
+        rainbow_kwargs = dict(
+            #save_steps=100,
+            observe_steps=10,
+            target_update=500
+        )
+
+        self.agent_actions = RainbowDQNAgent('Angel_actions', game_inputs=self.game_inputs, rainbow_kwargs=rainbow_kwargs, mode='train')
+        self.agent_mouse = RainbowDQNAgent("Angel_mouse", game_inputs=self.game_inputs2, rainbow_kwargs=rainbow_kwargs, mode='train')
 
         self.agent_actions.current_episode = self.game_state['current_run']
         self.agent_mouse.current_episode = self.agent_actions.current_episode
@@ -215,12 +226,16 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         self.agent_actions.current_step = self.game_state['total_steps']
         self.agent_mouse.current_step = self.agent_actions.current_step
 
+        #self.agent_actions.set_mode(1)
+        #self.agent_mouse.set_mode(1)
+
     def handle_play(self, game_frame):
 
-        # Saving model each N steps: - Causes great delay between actions
+        # Saving model each N steps: - Causes great delay between actions during saving process
         if self.game_state['total_steps'] % 100 == 0:
             self.agent_actions.save_model()
             self.agent_mouse.save_model()
+
 
         start = datetime.now()
 
@@ -241,16 +256,19 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         
         frame_buffer = FrameGrabber.get_frames([0, 2, 4, 6], frame_type="PIPELINE")
         agent_actions = self.agent_actions.generate_actions(frame_buffer)
-
-      
+        #print(f"agent_actions: {agent_actions}")
+        #agent_mouse = self.agent_mouse.generate_actions(frame_buffer)
         x = self.agent_mouse.generate_mouse_coordinates(frame_buffer)
         y = self.agent_mouse.generate_mouse_coordinates(frame_buffer)
 
-        print(f"\n\n X: {x}\n")
-        print(f" Y: {y}")
+        #print(f"\n\n X: {x}\n")
+        #print(f" Y: {y}")
+        #print(f"\nagent_mouse: {agent_mouse}")
 
-        mouse_actions = self.agent_mouse.generate_mouse_actions(x, 1920, y, 1080)
+        #mouse_actions = self.agent_mouse.generate_mouse_actions(x, 1920, y, 1080)
+        mouse_actions = self.agent_mouse.generate_mouse_actions(x, 1530, y, 1020)
 
+        #print(f"\n\nmouse_actions:{mouse_actions}")
 
         Environment.perform_input(self, actions=mouse_actions)
         Environment.perform_input(self, actions=agent_actions)
@@ -268,10 +286,21 @@ class SerpentNimbleAngelGameAgent(GameAgent):
         print(f"Current Run Step: {self.game_state['current_run_steps']}")
         print(f"Total Steps: {self.game_state['total_steps']}")
         #print(f"\n\nagent_mouse:\n\n{agent_mouse}\n\n\n")
-        #print(f"Model Observe mode: {self.agent_mouse.observe_mode}")
+        print(f"Model Observe mode: {self.agent_mouse.observe_mode}")
         #print(f"current_state shape: {self.agent_mouse.current_state.shape}")
 
         print(f"model mode: {self.agent_mouse.mode}")
+        print(f"model string: {self.agent_mouse.mode_string}")
+
+        #print(f"game_state_steps: {self.game_state['current_run_steps']}")
+        print(f"self.agent_steps: {self.agent_mouse.current_step}")
+        print(self.agent_mouse.current_episode)
+        #print(f"modified run and steps: {self.agent_mouse.current_run}\n")
+        #print(self.agent_mouse.current_steps)
+
+        #print(f"\n\n X: {x}\n")
+        #print(f" Y: {y}")
+        #print(f"\n\nmouse_actions:{mouse_actions}")
         
         self._check_end(game_frame)
 
@@ -292,6 +321,13 @@ class SerpentNimbleAngelGameAgent(GameAgent):
 
             for event in game_input:
                 print(f"event in game_input: {event}")'''
+
+        # Ok, we got the mouse inputs, but it's impracticable.
+        # We're not from OpenAI nor Tesla or Google. We need a way to use those inputs
+        # Without the need of borrowing an entire building full of TPU Pods.
+        #print(f"\n\n X: {x}\n")
+        #print(f" Y: {y}")
+        #print(f"\n\nmouse_actions:\n\n{mouse_actions}\n\n\n")
 
     def _measure_score(self, game_frame):
         score_area_frame = serpent.cv.extract_region_from_image(game_frame.frame, self.game.screen_regions["Score"])
@@ -327,7 +363,11 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             
         restart_grayscale = np.array(skimage.color.rgb2gray(restart_area_frame) * 255, dtype="uint8")
             
-        string = serpent.ocr.perform_ocr(image=restart_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 8')
+        try:
+            string = serpent.ocr.perform_ocr(image=restart_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 8')
+        
+        except ValueError:
+            string = "0"
 
         # OCR adds some strange characters. Let's remove them.
 
@@ -344,7 +384,11 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             next_area_frame = serpent.cv.extract_region_from_image(game_frame.frame, self.game.screen_regions["Next Level"])
             next_grayscale = np.array(skimage.color.rgb2gray(next_area_frame) * 255, dtype="uint8")
 
-            string = serpent.ocr.perform_ocr(image=next_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 8')
+            try:
+                string = serpent.ocr.perform_ocr(image=next_grayscale, scale=10, order=5, horizontal_closing=10, vertical_closing=5, config='--psm 8')
+            
+            except ValueError:
+                string = "0"
 
             string = re.sub(r'[^A-Z|a-z]', '', string)
 
@@ -358,12 +402,10 @@ class SerpentNimbleAngelGameAgent(GameAgent):
             else:
                 pass
         
-        return None      
+        return None
 
 
-# ******CURRENTLY UNUSED (but interesting) FUNCTIONS******
-# Unfortunately, the SpriteLocate function seems to require too much accuracy,
-# which results in always getting None from searches
+# ******CURRENTLY UNUSED (yet interesting) FUNCTIONS******
 
     '''def _measure_hp(self, game_frame):
         heart3 = skimage.io.imread('D:/Python/datasets/bullet_heaven_heart3.png')[..., np.newaxis]
